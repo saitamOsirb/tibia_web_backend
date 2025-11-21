@@ -44,30 +44,29 @@ const Database = function() {
 
 Database.prototype.loadHouseItems = function() {
 
-  /*
-   * Function Database.loadHouses
-   * Loads the items that are within the houses
-   */
-
-  // Go over all the house definitions
   this.houses.forEach(function(house) {
 
-    // Read the house definition from disk
-    let json = JSON.parse(fs.readFileSync(getDataFile("houses", "definitions", "%s.json".format(house.id))));
+    let json = JSON.parse(fs.readFileSync(
+      getDataFile("houses", "definitions", "%s.json".format(house.id))
+    ));
 
     json.forEach(function(entry) {
 
-      // Get the tile and create the item
-	  let tile = process.gameServer.world.getTileFromWorldPosition(entry.position);
+      // Crear el item
       let thing = process.gameServer.database.parseThing(entry.item);
 
-      // Push the thing to the top of the tile
-      tile.addTopThing(thing);
+      // Si no se pudo crear el item, lo saltamos
+      if (!thing) {
+        console.warn("[HOUSES] No se pudo parsear item en casa %s, posición %j", house.id, entry.position);
+        return;
+      }
+
+      // Usar el helper del mundo (ya controla posiciones fuera de rango)
+      process.gameServer.world.addTopThing(entry.position, thing);
 
     });
 
   });
-
 }
 
 Database.prototype.saveHouses = function() {

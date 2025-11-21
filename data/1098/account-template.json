@@ -33,35 +33,13 @@
       "addonOne": false,
       "addonTwo": false
     },
-    "slowness": 10
+    "speed": 120
   },
+  "inbox": [],
   "depot": [
     {
-      "id": 2148,
-      "count": 100,
-      "duration": null
+      "id": 2594
     },
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
     null,
     null,
     null
@@ -85,6 +63,21 @@
     "availableMounts": [],
     "availableOutfits": []
   },
+  "spellbook": {
+    "availableSpells": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      7,
+      8,
+      9
+    ],
+    "cooldowns": []
+  },
+  "keyring": [],
   "equipment": [
     null,
     null,

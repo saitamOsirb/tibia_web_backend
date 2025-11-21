@@ -11,7 +11,8 @@
     "slowness": 40,
     "outfit": {
       "id": 57
-    }
+    },
+    "speed": 60
   },
   "hearingRange": 5,
   "wanderRange": 2,
