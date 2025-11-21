@@ -61,8 +61,16 @@ Tile.prototype.getFriction = function() {
    * Returns the ground friction of the tile
    */
 
-  return this.getAttribute("friction");
+  // Intentamos leer la fricción del prototipo del ítem del suelo
+  let friction = this.getAttribute("friction");
 
+  // Si no existe, usamos un valor por defecto razonable
+  // (puedes ajustar este número más tarde si lo ves muy rápido/lento)
+  if (friction == null) {
+    friction = 100;
+  }
+
+  return friction;
 }
 
 Tile.prototype.broadcastNeighbours = function(packet) {

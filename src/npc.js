@@ -232,8 +232,8 @@ NPC.prototype.handleActionMove = function() {
 
   // Delegate to move the creature
   process.gameServer.world.moveCreature(this, tile.position);
-
-  let lockDuration = this.getStepDuration(tile.getFriction());
+    console.log("tile.getFriction():"+tile.getFriction());
+    let lockDuration = this.getStepDuration(tile.getFriction());
 
   // Lock this function for a number of frames plus some to make the NPC idle on a tile
   this.actions.lock(this.handleActionMove, 2 * lockDuration);
