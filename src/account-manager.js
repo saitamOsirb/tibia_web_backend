@@ -3,6 +3,7 @@
 const fs = require("fs");
 const bcrypt = require("bcryptjs");
 const fileAccessHandler = require("./file-access-handler");
+const AccountDB = require("./account-db");
 
 const AccountManager = function() {
 
@@ -65,13 +66,13 @@ AccountManager.prototype.createAccount = function(queryObject, requestCallback) 
 
   let name = queryObject.name.toLowerCase();
 
-  // Name of the character
+  // Name of the character (solo lo usamos para comprobar si ya existía en archivos viejos)
   let filepath = this.getAccountFile(name);
 
   fs.exists(filepath, function(exists) {
 
-    // The character already exists
-    if(exists) {
+    // The character already exists en un JSON viejo
+    if (exists) {
       return requestCallback(409, null);
     }
 
@@ -79,33 +80,28 @@ AccountManager.prototype.createAccount = function(queryObject, requestCallback) 
     bcrypt.hash(queryObject.password, this.SALT_ROUNDS, function(error, hash) {
 
       // Something wrong hashing?
-      if(error) {
+      if (error) {
         return requestCallback(500, null);
       }
 
-      let buffer = {"buffer": this.__getCharacterBlueprint(queryObject)}
+      // JSON completo del personaje (el blueprint que me mostraste)
+      let characterBlueprint = this.__getCharacterBlueprint(queryObject);
 
-      // Create and copy over the template
-      this.fileAccessHandler.writeFile(filepath, buffer, function(error) {
+      // ❌ Ya NO escribimos el archivo en disco
+      // this.fileAccessHandler.writeFile(...)
 
-        // Could not write file?
-        if(error) {
-          return requestCallback(500, null);
-        }
-
-        // Return the newly created account information
-        return requestCallback(null, new Object({
-          "hash": hash,
-          "definition": name
-        }));
-
-      }.bind(this));
+      // ✅ Solo devolvemos la info necesaria al LoginServer
+      return requestCallback(null, {
+        "hash": hash,
+        "definition": name,
+        "playerData": characterBlueprint
+      });
 
     }.bind(this));
 
   }.bind(this));
 
-}
+};
 
 AccountManager.prototype.getAccountFile = function(name) {
 
@@ -122,26 +118,30 @@ AccountManager.prototype.getPlayerAccount = function(name, callback) {
 
   /*
    * Function AccountManager.getPlayerAccount
-   * Reads an account from the filesystem database
+   * Ahora lee el personaje desde PostgreSQL (tabla players), NO desde un archivo JSON.
    */
 
-  // Filepath of where the account information is stored in JSON
-  let filepath = this.getAccountFile(name);
+  let charName = name.toLowerCase();
 
-  // Asynchronously read the database file: may return an error if the file does not exist
-  this.fileAccessHandler.readFile(filepath, function readPlayerAccount(error, buffer) {
+  // Usamos la función de account-db.js
+  AccountDB.loadPlayerData(charName, function(err, data) {
 
-    // Error reading from the database: propagate error
-    if(error) {
-      return callback(error, null);
+    if (err) {
+      console.error("[PG] Error cargando player desde DB:", err);
+      return callback(err, null);
     }
 
-    // Serialize the file and return it by calling back
-    return callback(null, JSON.parse(buffer.toString()));
+    // No existe ese personaje en la BD
+    if (!data) {
+      // Para ti esto se traduce en "personaje no encontrado"
+      return callback(new Error("Player not found in DB"), null);
+    }
+
+    // data ya es el JSON con el formato de account-template.json
+    return callback(null, data);
 
   });
-
-}
+};
 
 AccountManager.prototype.atomicUpdate = function(owner, callback) {
 
@@ -181,22 +181,31 @@ AccountManager.prototype.atomicUpdate = function(owner, callback) {
 AccountManager.prototype.savePlayerAccount = function(name, pointer) {
 
   /*
-   * Function AccountManager.savePlayerAccount
-   * Writes the account to the filesystem database
+   * Ahora guarda el player en la base de datos (tabla players),
+   * no en un archivo JSON.
    */
 
-  // Determine the filepath to store the data
-  let filepath = this.getAccountFile(name);
+  let data;
 
-  // Write the account to disk
-  this.fileAccessHandler.writeFile(filepath, pointer, function writePlayerAccount(error) {
+  try {
+    // pointer.buffer es un string JSON del objeto player
+    data = JSON.parse(pointer.buffer);
+  } catch (e) {
+    console.error("[PG] Error parseando JSON del player al guardar:", e);
+    return;
+  }
 
-    if(error !== null) {
-      return console.error("Could not save account data for %s".format(name));
+  // En la BD el campo name lo guardamos en minúsculas
+  let charName = name.toLowerCase();
+
+  AccountDB.updatePlayerData(charName, data, function(err) {
+    if (err) {
+      return console.error("Could not save account data for %s".format(charName), err);
     }
-
+    // Si quieres, aquí puedes hacer un log de éxito:
+    // console.log("[PG] Player %s guardado correctamente.", charName);
   });
 
-}
+};
 
 module.exports = AccountManager;

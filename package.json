@@ -2,6 +2,8 @@
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "jsonschema": "^1.4.1",
+    "pg": "^8.16.3",
+    "sqlite3": "^5.1.7",
     "ws": "^8.7.0",
     "xml2js": "^0.6.2"
   }

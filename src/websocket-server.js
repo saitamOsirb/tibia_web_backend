@@ -255,6 +255,7 @@ WebsocketServer.prototype.__handleLogin = function(gameSocket, name) {
 
     // There was an error loading the account
     if(error) {
+      console.log(error)
       return gameSocket.closeError("Invalid account number or password.");
     }
 
