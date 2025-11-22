@@ -9,7 +9,7 @@ const url = require("url");
 const AccountManager = require("./account-manager");
 const AccountDB = require("./account-db");
 
-const LoginServer = function(callback) {
+const LoginServer = function (callback) {
 
   /*
    * Class LoginServer
@@ -45,7 +45,7 @@ const LoginServer = function(callback) {
 
 };
 
-LoginServer.prototype.__init = function() {
+LoginServer.prototype.__init = function () {
 
   /*
    * LoginServer.__init
@@ -63,7 +63,7 @@ LoginServer.prototype.__init = function() {
 
 };
 
-LoginServer.prototype.__handleExit = function(exit) {
+LoginServer.prototype.__handleExit = function (exit) {
 
   /*
    * LoginServer.__handleExit
@@ -78,7 +78,7 @@ LoginServer.prototype.__handleExit = function(exit) {
 
 };
 
-LoginServer.prototype.__generateToken = function(name) {
+LoginServer.prototype.__generateToken = function (name) {
 
   /*
    * LoginServer.__generateToken
@@ -100,7 +100,7 @@ LoginServer.prototype.__generateToken = function(name) {
 
 };
 
-LoginServer.prototype.__isValidCreateAccount = function(queryObject) {
+LoginServer.prototype.__isValidCreateAccount = function (queryObject) {
 
   /*
    * LoginServer.__isValidCreateAccount
@@ -126,7 +126,7 @@ LoginServer.prototype.__isValidCreateAccount = function(queryObject) {
 
 };
 
-LoginServer.prototype.__createAccount = function(request, response) {
+LoginServer.prototype.__createAccount = function (request, response) {
 
   /*
    * LoginServer.__createAccount
@@ -145,7 +145,7 @@ LoginServer.prototype.__createAccount = function(request, response) {
   let account = queryObject.account;
 
   // 1) Comprobar si ya existe la cuenta en la base de datos
-  AccountDB.findAccount(account, function(err, row) {
+  AccountDB.findAccount(account, function (err, row) {
 
     if (err) {
       console.error("[LOGIN] Error comprobando cuenta en DB:", err);
@@ -160,7 +160,7 @@ LoginServer.prototype.__createAccount = function(request, response) {
     }
 
     // 2) Crear el personaje / archivo JSON como antes (AccountManager)
-    this.accountManager.createAccount(queryObject, function(error, accountObject) {
+    this.accountManager.createAccount(queryObject, function (error, accountObject) {
 
       // Fallo creando la cuenta (AccountManager)
       if (error) {
@@ -175,7 +175,7 @@ LoginServer.prototype.__createAccount = function(request, response) {
         account,
         accountObject.hash,
         accountObject.definition,
-        function(err2) {
+        function (err2) {
 
           if (err2) {
             console.error("[LOGIN] Error insertando cuenta en DB:", err2);
@@ -188,7 +188,7 @@ LoginServer.prototype.__createAccount = function(request, response) {
             accountObject.definition,   // name del personaje
             account,                    // número de cuenta
             accountObject.playerData,   // JSON completo del player
-            function(err3) {
+            function (err3) {
 
               if (err3) {
                 console.error("[LOGIN] Error guardando player en DB:", err3);
@@ -216,85 +216,314 @@ LoginServer.prototype.__handleRequest = function(request, response) {
 
   /*
    * LoginServer.__handleRequest
-   * Handles incoming HTTP requests
+   * Maneja todas las peticiones HTTP del login server
    */
 
-  // Enabled CORS to allow requests from JavaScript
+  // CORS básico
   response.setHeader("Access-Control-Allow-Origin", "*");
   response.setHeader("Access-Control-Allow-Methods", "OPTIONS, GET, POST");
+  response.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  // Only GET (for tokens) and POST (for account creation)
+  if (request.method === "OPTIONS") {
+    response.statusCode = 200;
+    return response.end();
+  }
+
+  // Solo aceptamos GET y POST
   if (request.method !== "GET" && request.method !== "POST") {
     response.statusCode = 501;
     return response.end();
   }
 
-  // POST means creating account
-  if (request.method === "POST") {
+  const requestObject = url.parse(request.url, true);
+  const pathname      = requestObject.pathname;
+
+  /*
+   * ==========================================================
+   *  RUTA: POST /characters
+   *  Crea un nuevo personaje para una cuenta existente.
+   *  Body JSON: { account, password, name, sex }
+   * ==========================================================
+   */
+  if (request.method === "POST" && pathname === "/characters") {
+
+    let body = "";
+    request.on("data", chunk => body += chunk);
+    request.on("end", function() {
+      let data;
+
+      try {
+        data = JSON.parse(body);
+      } catch (e) {
+        response.statusCode = 400;
+        response.write(JSON.stringify({ error: "INVALID_JSON" }));
+        return response.end();
+      }
+
+      let { account, password, name, sex } = data || {};
+
+      if (!account || !password || !name || !sex) {
+        response.statusCode = 400;
+        response.write(JSON.stringify({ error: "MISSING_FIELDS" }));
+        return response.end();
+      }
+
+      // 1) Validar cuenta + password con la misma lógica de siempre
+      this.__authAccount(account, password, function(err, accountRow) {
+        if (err) {
+          if (err.message === "ACCOUNT_NOT_FOUND" || err.message === "INVALID_PASSWORD") {
+            response.statusCode = 401;
+            response.write(JSON.stringify({ error: err.message }));
+            return response.end();
+          }
+
+          console.error("[LOGIN] Error auth POST /characters:", err);
+          response.statusCode = 500;
+          response.write(JSON.stringify({ error: "INTERNAL_ERROR" }));
+          return response.end();
+        }
+
+        // 2) Asegurarnos de que el nombre de personaje no exista ya
+        AccountDB.loadPlayerData(name.toLowerCase(), function(err, existing) {
+          if (err) {
+            console.error("[LOGIN] Error comprobando nombre:", err);
+            response.statusCode = 500;
+            response.write(JSON.stringify({ error: "INTERNAL_ERROR" }));
+            return response.end();
+          }
+
+          if (existing) {
+            response.statusCode = 409;
+            response.write(JSON.stringify({ error: "NAME_TAKEN" }));
+            return response.end();
+          }
+
+          // 3) Usar AccountManager.__getCharacterBlueprint para generar el PJ
+          const charQueryObject = {
+            name: name,
+            sex: sex
+          };
+
+          // Devuelve un STRING JSON con el blueprint completo del personaje
+          const playerDataString = this.accountManager.__getCharacterBlueprint(charQueryObject);
+
+          let playerData;
+          try {
+            // Lo convertimos a objeto JS para guardarlo como JSON/JSONB en la BD
+            playerData = JSON.parse(playerDataString);
+          } catch (e) {
+            console.error("[LOGIN] Error parseando blueprint de personaje:", e);
+            response.statusCode = 500;
+            response.write(JSON.stringify({ error: "INTERNAL_ERROR" }));
+            return response.end();
+          }
+
+          // 4) Guardar el nuevo personaje en la tabla players
+          AccountDB.savePlayerData(
+            name.toLowerCase(),   // name: en minúsculas
+            account,              // número de cuenta
+            playerData,           // JSON completo del personaje
+            function(err2) {
+              if (err2) {
+                console.error("[LOGIN] Error guardando nuevo personaje:", err2);
+                response.statusCode = 500;
+                response.write(JSON.stringify({ error: "INTERNAL_ERROR" }));
+                return response.end();
+              }
+
+              response.writeHead(201, { "Content-Type": "application/json" });
+              response.end(JSON.stringify({ ok: true, name }));
+            }
+          );
+
+        }.bind(this));
+      }.bind(this));
+    }.bind(this));
+
+    return;
+  }
+
+  /*
+   * ==========================================================
+   *  RUTA: POST /  (crear cuenta)
+   *  Se deja igual que en tu código original
+   * ==========================================================
+   */
+  if (request.method === "POST" && pathname === "/") {
     return this.__createAccount(request, response);
   }
 
-  // Data submitted in the querystring (GET / login)
-  let requestObject = url.parse(request.url, true);
+  /*
+   * ==========================================================
+   *  RUTA: GET /characters
+   *  Lista todos los personajes de una cuenta
+   *  Parámetros: ?account=...&password=...
+   * ==========================================================
+   */
+  if (request.method === "GET" && pathname === "/characters") {
+    const q = requestObject.query;
 
-  if (requestObject.pathname !== "/") {
+    if (!q.account || !q.password) {
+      response.statusCode = 400;
+      response.write(JSON.stringify({ error: "MISSING_CREDENTIALS" }));
+      return response.end();
+    }
+
+    this.__authAccount(q.account, q.password, function(err, accountRow) {
+      if (err) {
+        if (err.message === "ACCOUNT_NOT_FOUND" || err.message === "INVALID_PASSWORD") {
+          response.statusCode = 401;
+          response.write(JSON.stringify({ error: err.message }));
+          return response.end();
+        }
+
+        console.error("[LOGIN] Error auth GET /characters:", err);
+        response.statusCode = 500;
+        response.write(JSON.stringify({ error: "INTERNAL_ERROR" }));
+        return response.end();
+      }
+
+      AccountDB.listCharactersByAccount(q.account, function(err, rows) {
+        if (err) {
+          console.error("[LOGIN] Error listando personajes:", err);
+          response.statusCode = 500;
+          response.write(JSON.stringify({ error: "INTERNAL_ERROR" }));
+          return response.end();
+        }
+
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({
+          account: q.account,
+          characters: rows.map(r => ({
+            name: r.name
+            // aquí podrías parsear r.data para exponer level, voc, etc
+          }))
+        }));
+      });
+    }.bind(this));
+
+    return;
+  }
+
+  /*
+   * ==========================================================
+   *  RUTA: GET /login-character
+   *  Genera un token para un personaje concreto
+   *  Parámetros: ?account=...&password=...&name=...
+   * ==========================================================
+   */
+  if (request.method === "GET" && pathname === "/login-character") {
+    const q = requestObject.query;
+
+    if (!q.account || !q.password || !q.name) {
+      response.statusCode = 400;
+      response.write(JSON.stringify({ error: "MISSING_FIELDS" }));
+      return response.end();
+    }
+
+    this.__authAccount(q.account, q.password, function(err, accountRow) {
+      if (err) {
+        if (err.message === "ACCOUNT_NOT_FOUND" || err.message === "INVALID_PASSWORD") {
+          response.statusCode = 401;
+          response.write(JSON.stringify({ error: err.message }));
+          return response.end();
+        }
+
+        console.error("[LOGIN] Error auth GET /login-character:", err);
+        response.statusCode = 500;
+        response.write(JSON.stringify({ error: "INTERNAL_ERROR" }));
+        return response.end();
+      }
+
+      // Confirmar que el personaje pertenece a esta cuenta
+      AccountDB.listCharactersByAccount(q.account, function(err, rows) {
+        if (err) {
+          console.error("[LOGIN] Error listando personajes en /login-character:", err);
+          response.statusCode = 500;
+          response.write(JSON.stringify({ error: "INTERNAL_ERROR" }));
+          return response.end();
+        }
+
+        const found = rows.find(r => r.name.toLowerCase() === q.name.toLowerCase());
+
+        if (!found) {
+          response.statusCode = 403;
+          response.write(JSON.stringify({ error: "CHARACTER_DOES_NOT_BELONG_TO_ACCOUNT" }));
+          return response.end();
+        }
+
+        // Generar token usando el nombre del personaje
+        const tokenObject = this.__generateToken(q.name);
+
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({
+          token: Buffer.from(JSON.stringify(tokenObject)).toString("base64"),
+          host: CONFIG.SERVER.EXTERNAL_HOST
+        }));
+      }.bind(this));
+    }.bind(this));
+
+    return;
+  }
+
+  /*
+   * ==========================================================
+   *  RUTA: GET /  (login normal de cuenta)
+   *  Igual que tenías antes
+   * ==========================================================
+   */
+
+  // Cualquier otra ruta GET ≠ "/" es 404
+  if (request.method === "GET" && pathname !== "/") {
     response.statusCode = 404;
     return response.end();
   }
 
-  let queryObject = requestObject.query;
-  console.log("[LOGIN] Petición de login:", queryObject);
+  const queryObject = requestObject.query;
 
-  // Account or password were not supplied
+  // Falta account o password
   if (!queryObject.account || !queryObject.password) {
     response.statusCode = 401;
     return response.end();
   }
 
-  let account  = queryObject.account;
-  let password = queryObject.password;
+  const account  = queryObject.account;
+  const password = queryObject.password;
 
-  // Buscar la cuenta en la base de datos
   AccountDB.findAccount(account, function(err, row) {
 
-      if (err) {
-    console.error("[LOGIN] Error buscando cuenta en DB:", err);
-    response.statusCode = 500;
-    return response.end();
-  }
-
-  if (!row) {
-    console.warn("[LOGIN] Cuenta no encontrada:", account);
-    response.statusCode = 401;
-    return response.end();
-  }
-
-  console.log("[LOGIN] Cuenta encontrada:", row.account);
-
-  bcrypt.compare(password, row.hash, function(error, result) {
-
-    if (error) {
-      console.error("[LOGIN] Error en bcrypt.compare:", error);
+    if (err) {
+      console.error("[LOGIN] Error buscando cuenta en DB:", err);
       response.statusCode = 500;
       return response.end();
     }
 
-    if (!result) {
-      console.warn("[LOGIN] Password incorrecta para account:", account);
+    // Cuenta no existe
+    if (!row) {
       response.statusCode = 401;
       return response.end();
     }
 
-    console.log("[LOGIN] Login correcto para account:", account);
+    // Comparar password
+    bcrypt.compare(password, row.hash, function(error, result) {
 
-      // Login válido → devolver HMAC token para el GameServer
-      response.writeHead(200, {"Content-Type": "application/json"});
+      if (error) {
+        response.statusCode = 500;
+        return response.end();
+      }
 
+      if (!result) {
+        response.statusCode = 401;
+        return response.end();
+      }
+
+      // Login válido → devolver token y host
+      response.writeHead(200, { "Content-Type": "application/json" });
       response.end(JSON.stringify({
-        "token": Buffer.from(
+        token: Buffer.from(
           JSON.stringify(this.__generateToken(row.definition))
         ).toString("base64"),
-        "host": CONFIG.SERVER.EXTERNAL_HOST
+        host: CONFIG.SERVER.EXTERNAL_HOST
       }));
 
     }.bind(this));
@@ -302,5 +531,31 @@ LoginServer.prototype.__handleRequest = function(request, response) {
   }.bind(this));
 
 };
+
+LoginServer.prototype.__authAccount = function (account, password, callback) {
+  /*
+   * Valida account + password usando la misma lógica que el login normal.
+   * callback(err, accountRow)
+   */
+
+  AccountDB.findAccount(account, function (err, row) {
+    if (err) return callback(err);
+
+    if (!row) {
+      // cuenta no existe
+      return callback(new Error("ACCOUNT_NOT_FOUND"));
+    }
+
+    bcrypt.compare(password, row.hash, function (error, result) {
+      if (error) return callback(error);
+      if (!result) return callback(new Error("INVALID_PASSWORD"));
+
+      // credenciales OK → devolvemos la fila
+      callback(null, row);
+    });
+  });
+};
+
+
 
 module.exports = LoginServer;

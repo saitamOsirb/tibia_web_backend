@@ -142,11 +142,33 @@ function updatePlayerData(name, data, callback) {
     }
   );
 }
+
+function listCharactersByAccount(account, callback) {
+  const db = initDatabase();
+
+  db.query(
+    `
+      SELECT name, data
+      FROM players
+      WHERE account = $1
+      ORDER BY name
+    `,
+    [account],
+    (err, res) => {
+      if (err) return callback(err);
+
+      // devolvemos un array de { name, data }
+      callback(null, res.rows);
+    }
+  );
+}
+
 module.exports = {
   initDatabase,
   findAccount,
   insertAccount,
   savePlayerData,
   loadPlayerData,
-  updatePlayerData
+  updatePlayerData,
+  listCharactersByAccount
 };
