@@ -57,7 +57,15 @@ Keyboard.prototype.KEYS = new Object({
   "F9": 120,
   "F10": 121,
   "F11": 122,
-  "F12": 123
+  "F12": 123,
+    "KEY_A": 65,
+  "KEY_D": 68,
+  "KEY_E": 69,
+  "KEY_L": 76,
+  "KEY_M": 77,
+  "KEY_Q": 81,
+  "KEY_S": 83,
+  "KEY_W": 87,
 });
 
 Keyboard.prototype.setInactive = function() {
@@ -305,11 +313,12 @@ Keyboard.prototype.__keyDown = function(event) {
     return this.__handleReturnKey();
   }
 
-  if(event.keyCode === Keyboard.prototype.KEYS.KEY_L) {
-    if(this.isControlDown()) {
-      return gameClient.interface.sendLogout();
-    }
+  if(event.keyCode === Keyboard.prototype.KEYS.KEY_Q) {
+  if(this.isControlDown()) {
+    event.preventDefault(); // intenta evitar que el navegador cierre la pestaña/app con Ctrl+Q
+    return gameClient.interface.sendLogout();
   }
+}
 
   // Open large world map
   if(event.keyCode === Keyboard.prototype.KEYS.KEY_M) {
